@@ -428,6 +428,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       QueueClipboard.shared.isModeActive = false
       QueueClipboardManager.shared.stopMonitoring()
     } else {
+      QueueClipboard.shared.clear()
       QueueClipboard.shared.isModeActive = true
       QueueClipboardManager.shared.startMonitoring()
     }
