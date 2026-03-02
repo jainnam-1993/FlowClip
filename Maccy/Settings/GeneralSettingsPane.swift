@@ -64,7 +64,7 @@ struct GeneralSettingsPane: View {
       }
 
       Settings.Section(
-        label: { Text("Open Queue:", tableName: "GeneralSettings") }
+        label: { Text("Toggle Queue:", tableName: "GeneralSettings") }
       ) {
         KeyboardShortcuts.Recorder(for: .queue)
       }

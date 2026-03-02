@@ -8,7 +8,7 @@
 "PinTooltip" = "고정 기록 항목에 대한 단축키입니다.\n기본값: %@P.";
 "Delete" = "삭제:";
 "DeleteTooltip" = "기록 항목 삭제 단축키입니다.\n기본값: %@⌫.";
-"Open Queue:" = "대기열 열기:";
+"Toggle Queue:" = "대기열 전환:";
 "Clear Queue:" = "대기열 비우기:";
 "Paste All:" = "전체 붙여넣기:";
 "ToggleQueueAutoSplit" = "자동 분할 단축키:";

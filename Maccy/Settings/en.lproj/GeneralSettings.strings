@@ -8,7 +8,7 @@
 "PinTooltip" = "Shortcut key to pin history item.\nDefault: ⌥P.";
 "Delete" = "Delete:";
 "DeleteTooltip" = "Shortcut key to delete history item.\nDefault: ⌥⌫.";
-"Open Queue:" = "Open Queue:";
+"Toggle Queue:" = "Toggle Queue:";
 "Clear Queue:" = "Clear Queue:";
 "Paste All:" = "Paste All:";
 "ToggleQueueAutoSplit" = "Auto-Split Key:";

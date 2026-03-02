@@ -4,15 +4,6 @@ import Sparkle
 import SwiftUI
 import Sauce
 import Observation
-import UniformTypeIdentifiers
-
-private struct QueueControlDividerMidpointsPreferenceKey: PreferenceKey {
-  static var defaultValue: [CGFloat] = []
-
-  static func reduce(value: inout [CGFloat], nextValue: () -> [CGFloat]) {
-    value.append(contentsOf: nextValue())
-  }
-}
 
 @Observable
 class QueueClipboard {
@@ -266,12 +257,10 @@ class QueueClipboardManager {
 }
 
 
-
-
-
 class AppDelegate: NSObject, NSApplicationDelegate {
   var panel: FloatingPanel<ContentView>!
-  var queuePanel: FloatingPanel<QueueContentView>!
+  private var queuePulseTimer: Timer?
+  private var queuePulseVisible = true
 
   @objc
   private lazy var statusItem: NSStatusItem = {
@@ -341,13 +330,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     synchronizeMenuIconText()
+    synchronizeQueueBadge()
     Task {
-      for await value in Defaults.updates(.showRecentCopyInMenuBar) {
-        if value {
-          statusItem.button?.title = AppState.shared.menuIconText
-        } else {
-          statusItem.button?.title = ""
-        }
+      for await _ in Defaults.updates(.showRecentCopyInMenuBar) {
+        updateStatusBarTitle()
       }
     }
 
@@ -378,24 +364,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       ContentView()
     }
 
-    queuePanel = FloatingPanel(
-      contentRect: NSRect(origin: .zero, size: Defaults[.queueWindowSize]),
-      identifier: (Bundle.main.bundleIdentifier ?? "org.p0deje.Maccy") + ".queue",
-      sizePersistenceKey: .queueWindowSize,
-      positionPersistenceKey: .queueWindowPosition,
-      onClose: {
-        QueueClipboard.shared.isModeActive = false
-        QueueClipboardManager.shared.stopMonitoring()
-      }
-    ) {
-      QueueContentView()
-    }
-    queuePanel.level = NSWindow.Level.floating // Ensure it's always on top
-    queuePanel.isMovableByWindowBackground = false
-    queuePanel.isMovableExternally = true
-    queuePanel.closeOnResignKey = false // Keep open when focus is lost
-    queuePanel.hidesOnDeactivate = false
-
     KeyboardShortcuts.onKeyDown(for: .queue) { [weak self] in
       self?.toggleQueue()
     }
@@ -407,14 +375,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     KeyboardShortcuts.onKeyDown(for: .queuePasteAll) {
        guard !QueueClipboard.shared.items.isEmpty else { return }
-       
+
        let separator = Defaults[.queueSeparator].value ?? ""
        let itemsToPaste = Defaults[.queuePasteLifo] ? QueueClipboard.shared.items.reversed() : QueueClipboard.shared.items
        let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator) + separator
-       
+
        QueueClipboardManager.shared.isInternalPaste = true
        Clipboard.shared.copy(itemsText, fromMaccy: true)
        Clipboard.shared.paste()
+
+       // Flush: clear queue and return to normal recording mode
+       QueueClipboard.shared.clear()
+       QueueClipboard.shared.isModeActive = false
+       QueueClipboardManager.shared.stopMonitoring()
     }
 
     KeyboardShortcuts.onKeyDown(for: .queueToggleSplit) {
@@ -441,22 +414,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       alert.informativeText = NSLocalizedString("AccessibilityPermissionRequiredMessage", comment: "")
       alert.addButton(withTitle: NSLocalizedString("OpenSystemSettings", comment: ""))
       alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
-      
+
       if alert.runModal() == .alertFirstButtonReturn {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
           NSWorkspace.shared.open(url)
         }
-        Accessibility.check() // Trigger system prompt if needed
+        Accessibility.check()
       }
       return
     }
 
-    if queuePanel.isPresented {
-      queuePanel.close()
+    if QueueClipboard.shared.isModeActive {
+      QueueClipboard.shared.isModeActive = false
+      QueueClipboardManager.shared.stopMonitoring()
     } else {
       QueueClipboard.shared.isModeActive = true
       QueueClipboardManager.shared.startMonitoring()
-      queuePanel.open(height: Defaults[.queueWindowSize].height, at: PopupPosition.cursor, makeKey: false)
     }
   }
 
@@ -539,12 +512,75 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       AppState.shared.menuIconText
     } onChange: {
       DispatchQueue.main.async {
-        if Defaults[.showRecentCopyInMenuBar] {
-          self.statusItem.button?.title = AppState.shared.menuIconText
-        }
+        self.updateStatusBarTitle()
         self.synchronizeMenuIconText()
       }
     }
+  }
+
+  private func synchronizeQueueBadge() {
+    _ = withObservationTracking {
+      _ = QueueClipboard.shared.isModeActive
+      _ = QueueClipboard.shared.items.count
+    } onChange: {
+      DispatchQueue.main.async {
+        self.updateStatusBarTitle()
+        self.synchronizeQueueBadge()
+      }
+    }
+  }
+
+  private func updateStatusBarTitle() {
+    if QueueClipboard.shared.isModeActive {
+      let count = QueueClipboard.shared.items.count
+      let dot = queuePulseVisible ? "\u{25CF} " : "  "  // Pulsing red dot (rendered via attributedTitle)
+      let badge = count > 0 ? "\u{00D7}\(count)" : "Q"
+      applyQueueBadge(dot: dot, badge: badge)
+      startQueuePulse()
+    } else {
+      stopQueuePulse()
+      if Defaults[.showRecentCopyInMenuBar] {
+        statusItem.button?.attributedTitle = NSAttributedString()
+        statusItem.button?.title = AppState.shared.menuIconText
+      } else {
+        statusItem.button?.attributedTitle = NSAttributedString()
+        statusItem.button?.title = ""
+      }
+    }
+  }
+
+  private func applyQueueBadge(dot: String, badge: String) {
+    let attributed = NSMutableAttributedString()
+    attributed.append(NSAttributedString(
+      string: dot,
+      attributes: [.foregroundColor: NSColor.systemRed, .font: NSFont.systemFont(ofSize: 8)]
+    ))
+    attributed.append(NSAttributedString(
+      string: badge,
+      attributes: [.foregroundColor: NSColor.labelColor, .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)]
+    ))
+    statusItem.button?.attributedTitle = attributed
+  }
+
+  private func startQueuePulse() {
+    guard queuePulseTimer == nil else { return }
+    queuePulseVisible = true
+    queuePulseTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+      guard let self else { return }
+      self.queuePulseVisible.toggle()
+      if QueueClipboard.shared.isModeActive {
+        let count = QueueClipboard.shared.items.count
+        let dot = self.queuePulseVisible ? "\u{25CF} " : "  "
+        let badge = count > 0 ? "\u{00D7}\(count)" : "Q"
+        self.applyQueueBadge(dot: dot, badge: badge)
+      }
+    }
+  }
+
+  private func stopQueuePulse() {
+    queuePulseTimer?.invalidate()
+    queuePulseTimer = nil
+    queuePulseVisible = true
   }
 
   private func disableUnusedGlobalHotkeys() {
@@ -563,404 +599,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   }
 }
 
-struct QueueContentView: View {
-  @State var queue = QueueClipboard.shared
-  @Default(.queueCyclePaste) var queueCyclePaste
-  @Default(.queuePasteLifo) var queuePasteLifo
-  @Default(.queueAutoSplitText) var queueAutoSplitText
-  @Default(.queueSeparator) var queueSeparator
-  @Default(.queueSeparatorPresets) var queueSeparatorPresets
-  @Default(.queueActiveSeparatorPresetIndex) var queueActiveSeparatorPresetIndex
-  @State private var isHoveringClose = false
-  @State private var draggingQueueItemID: UUID?
-
-  private func toggleCyclePaste() {
-    queueCyclePaste.toggle()
-    NSSound.playMorseFeedback()
-  }
-
-  private func togglePasteOrder() {
-    queuePasteLifo.toggle()
-    NSSound.playMorseFeedback()
-  }
-
-  private func toggleAutoSplitText() {
-    queueAutoSplitText.toggle()
-    NSSound.playMorseFeedback()
-  }
-
-  private func cycleSeparatorPreset() {
-    queueSeparator = .custom
-    queueActiveSeparatorPresetIndex = QueueSeparator.cycleCurrentPreset()
-    NSSound.playMorseFeedback()
-  }
-
-  private var separatorPresetNumber: Int {
-    let presets = QueueSeparator.normalizedPresetSlots(queueSeparatorPresets)
-    guard presets.contains(where: { !$0.isEmpty }) else {
-      return 0
-    }
-
-    return QueueSeparator.normalizedPresetIndex(queueActiveSeparatorPresetIndex) + 1
-  }
-
-  var body: some View {
-    ZStack {
-      VStack(alignment: .leading, spacing: 0) {
-        // Header
-        ZStack {
-          QueueWindowDragHandleView()
-            .frame(maxWidth: .infinity)
-            .frame(height: 22)
-
-          Text("Queue Clipboard")
-            .font(.system(size: 13, weight: .semibold))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .allowsHitTesting(false)
-            
-          HStack {
-            Button(action: { AppState.shared.appDelegate?.queuePanel.close() }) {
-              Image(systemName: isHoveringClose ? "xmark.circle.fill" : "circle.fill")
-                .font(.system(size: 14))
-                .foregroundColor(.red)
-            }
-            .buttonStyle(.plain)
-            .onHover { inside in
-              isHoveringClose = inside
-              if inside {
-                NSCursor.pointingHand.push()
-              } else {
-                NSCursor.pop()
-              }
-            }
-            
-            Spacer()
-          }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
-
-        // List
-        if queue.items.isEmpty {
-          Spacer()
-          Text("Empty Queue")
-            .foregroundColor(.secondary)
-            .font(.system(size: 12))
-            .frame(maxWidth: .infinity, alignment: .center)
-          Spacer()
-        } else {
-          ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-              ForEach(queue.items) { queueItem in
-                QueueItemView(queueItem: queueItem)
-                  .onDrag {
-                    draggingQueueItemID = queueItem.id
-                    return NSItemProvider(object: queueItem.id.uuidString as NSString)
-                  }
-                  .onDrop(
-                    of: [UTType.text],
-                    delegate: QueueItemReorderDropDelegate(
-                      targetItemID: queueItem.id,
-                      queue: queue,
-                      draggingQueueItemID: $draggingQueueItemID
-                    )
-                  )
-              }
-
-              Color.clear
-                .frame(height: 16)
-                .onDrop(
-                  of: [UTType.text],
-                  delegate: QueueReorderToEndDropDelegate(
-                    queue: queue,
-                    draggingQueueItemID: $draggingQueueItemID
-                  )
-                )
-            }
-            .padding(.bottom, 60)
-          }
-          .scrollIndicators(.hidden)
-        }
-      }
-      
-      // Floating Controls (Bottom)
-      VStack {
-        Spacer()
-        HStack {
-          // Left Group: Cycle + LIFO/FIFO
-          HStack(spacing: 12) {
-            Button(action: toggleCyclePaste) {
-              Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 14))
-                .foregroundColor(queueCyclePaste ? .accentColor : .primary)
-            }
-            .buttonStyle(.plain)
-            .help("Cycle Paste")
-
-            Divider()
-              .frame(height: 12)
-              .background {
-                GeometryReader { proxy in
-                  Color.clear.preference(
-                    key: QueueControlDividerMidpointsPreferenceKey.self,
-                    value: [proxy.frame(in: .named("queue-control-space")).midX]
-                  )
-                }
-              }
-
-            Button(action: toggleAutoSplitText) {
-              Image(systemName: "list.bullet.indent")
-                .font(.system(size: 14))
-                .foregroundColor(queueAutoSplitText ? .accentColor : .primary)
-            }
-            .buttonStyle(.plain)
-            .help("Auto-Split Queue Items")
-
-            Divider()
-              .frame(height: 12)
-              .background {
-                GeometryReader { proxy in
-                  Color.clear.preference(
-                    key: QueueControlDividerMidpointsPreferenceKey.self,
-                    value: [proxy.frame(in: .named("queue-control-space")).midX]
-                  )
-                }
-              }
-
-            Button(action: togglePasteOrder) {
-              Text(queuePasteLifo ? "LIFO" : "FIFO")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.accentColor)
-            }
-            .buttonStyle(.plain)
-            .frame(width: 30) // Fixed width to prevent jitter
-            .help("Toggle Paste Order")
-
-            Divider()
-              .frame(height: 12)
-              .background {
-                GeometryReader { proxy in
-                  Color.clear.preference(
-                    key: QueueControlDividerMidpointsPreferenceKey.self,
-                    value: [proxy.frame(in: .named("queue-control-space")).midX]
-                  )
-                }
-              }
-
-            Button(action: cycleSeparatorPreset) {
-              Text("S\(separatorPresetNumber)")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.accentColor)
-            }
-            .buttonStyle(.plain)
-            .frame(width: 24)
-            .help("Cycle Separator Preset")
-          }
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
-          .coordinateSpace(name: "queue-control-space")
-          .background(.regularMaterial, in: Capsule())
-          .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-          .overlayPreferenceValue(QueueControlDividerMidpointsPreferenceKey.self) { points in
-            GeometryReader { proxy in
-              let sortedPoints = points.sorted()
-              let firstDividerX = sortedPoints.first ?? proxy.size.width / 4
-              let secondDividerX = sortedPoints.count > 1 ? sortedPoints[1] : proxy.size.width / 2
-              let thirdDividerX = sortedPoints.count > 2 ? sortedPoints[2] : proxy.size.width * 3 / 4
-
-              HStack(spacing: 0) {
-                Color.clear
-                  .frame(width: max(0, firstDividerX))
-                  .contentShape(Rectangle())
-                  .onTapGesture(perform: toggleCyclePaste)
-
-                Color.clear
-                  .frame(width: max(0, secondDividerX - firstDividerX))
-                  .contentShape(Rectangle())
-                  .onTapGesture(perform: toggleAutoSplitText)
-
-                Color.clear
-                  .frame(width: max(0, thirdDividerX - secondDividerX))
-                  .contentShape(Rectangle())
-                  .onTapGesture(perform: togglePasteOrder)
-
-                Color.clear
-                  .frame(maxWidth: .infinity)
-                  .contentShape(Rectangle())
-                  .onTapGesture(perform: cycleSeparatorPreset)
-              }
-            }
-          }
-          .overlay(
-            Capsule()
-              .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
-          )
-          
-          Spacer()
-          
-          // Right Button: Clear
-          Button(action: {
-            queue.clear()
-            NSSound.playMorseFeedback()
-          }) {
-            Image(systemName: "trash")
-              .font(.system(size: 14))
-              .foregroundColor(.red.opacity(0.8))
-          }
-          .buttonStyle(.plain)
-          .padding(8)
-          .background(.regularMaterial, in: Circle())
-          .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-          .overlay(
-            Circle()
-              .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
-          )
-          .help("Clear Queue")
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
-      }
-    }
-    .frame(minWidth: 260, minHeight: 360)
-    .background(
-      ZStack {
-        VisualEffectView()
-      }
-      .ignoresSafeArea()
-    )
-    .clipShape(RoundedRectangle(cornerRadius: 12))
-  }
-}
-
-private struct QueueWindowDragHandleView: NSViewRepresentable {
-  func makeNSView(context: Context) -> QueueWindowDragHandleNSView {
-    QueueWindowDragHandleNSView()
-  }
-
-  func updateNSView(_ nsView: QueueWindowDragHandleNSView, context: Context) {}
-}
-
-private final class QueueWindowDragHandleNSView: NSView {
-  override func mouseDown(with event: NSEvent) {
-    window?.performDrag(with: event)
-  }
-}
-
-private struct QueueItemReorderDropDelegate: DropDelegate {
-  let targetItemID: UUID
-  let queue: QueueClipboard
-  @Binding var draggingQueueItemID: UUID?
-
-  func validateDrop(info: DropInfo) -> Bool {
-    draggingQueueItemID != nil
-  }
-
-  func dropEntered(info: DropInfo) {
-    guard let draggingQueueItemID else {
-      return
-    }
-
-    queue.move(itemWithID: draggingQueueItemID, beforeItemWithID: targetItemID)
-  }
-
-  func dropUpdated(info: DropInfo) -> DropProposal? {
-    DropProposal(operation: .move)
-  }
-
-  func performDrop(info: DropInfo) -> Bool {
-    draggingQueueItemID = nil
-    return true
-  }
-}
-
-private struct QueueReorderToEndDropDelegate: DropDelegate {
-  let queue: QueueClipboard
-  @Binding var draggingQueueItemID: UUID?
-
-  func validateDrop(info: DropInfo) -> Bool {
-    draggingQueueItemID != nil
-  }
-
-  func dropEntered(info: DropInfo) {
-    guard let draggingQueueItemID else {
-      return
-    }
-
-    queue.moveToEnd(itemWithID: draggingQueueItemID)
-  }
-
-  func dropUpdated(info: DropInfo) -> DropProposal? {
-    DropProposal(operation: .move)
-  }
-
-  func performDrop(info: DropInfo) -> Bool {
-    draggingQueueItemID = nil
-    return true
-  }
-}
-
-struct QueueItemView: View {
-  let queueItem: QueueClipboard.QueueItem
-  @State private var isHovering = false
-
-  var body: some View {
-    ZStack(alignment: .trailing) {
-      HStack(alignment: .top, spacing: 10) {
-        VStack(alignment: .leading, spacing: 2) {
-          if let image = queueItem.item.image {
-            Image(nsImage: image)
-              .resizable()
-              .aspectRatio(contentMode: .fit)
-              .frame(maxWidth: 80, maxHeight: 45)
-              .cornerRadius(4)
-          }
-          Text(queueItem.item.title)
-            .font(.system(size: 12, weight: .medium))
-            .lineLimit(2)
-            .multilineTextAlignment(.leading)
-        }
-        Spacer()
-      }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 8)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(isHovering ? Color.primary.opacity(0.08) : Color.clear)
-      .contentShape(Rectangle())
-      .onTapGesture {
-        // 1. Ensure focus goes back to the previous app
-        NSApp.deactivate()
-        
-        // 2. Prepare for internal paste bypass
-        QueueClipboardManager.shared.isInternalPaste = true
-        
-        // 3. Copy the item
-        Clipboard.shared.copy(queueItem.item, removeFormatting: Defaults[.removeFormattingByDefault])
-        
-        // 4. Paste with a slight delay to allow focus switch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-          Clipboard.shared.paste()
-        }
-      }
-      
-      if isHovering {
-        Button(action: {
-          QueueClipboard.shared.remove(id: queueItem.id)
-        }) {
-          Image(systemName: "xmark")
-            .foregroundColor(.secondary)
-            .font(.system(size: 9, weight: .bold))
-        }
-        .buttonStyle(.plain)
-        .transition(.opacity)
-        .padding(.trailing, 10)
-      }
-    }
-    .opacity(queueItem.isPasted ? 0.3 : 1.0)
-    .onHover { hovering in
-      withAnimation(.easeInOut(duration: 0.1)) {
-        isHovering = hovering
-      }
-    }
-  }
-}
