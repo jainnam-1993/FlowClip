@@ -291,26 +291,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       NSSound.playMorseFeedback()
     }
     
-    KeyboardShortcuts.onKeyDown(for: .queuePasteAll) {
-       guard !QueueClipboard.shared.items.isEmpty else { return }
-
-       // 1. Stop the event tap FIRST so our Cmd+V isn't intercepted
-       QueueClipboardManager.shared.stopMonitoring()
-
-       // 2. Join items with separator (respecting LIFO/FIFO order)
-       let separator = Defaults[.queueSeparator].value ?? ""
-       let itemsToPaste = Defaults[.queuePasteLifo]
-         ? QueueClipboard.shared.items.reversed()
-         : Array(QueueClipboard.shared.items)
-       let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator)
-
-       // 3. Single atomic paste
-       Clipboard.shared.copy(itemsText, fromMaccy: true)
-       Clipboard.shared.paste()
-
-       // 4. Clean up: clear queue and deactivate
-       QueueClipboard.shared.clear()
-       QueueClipboard.shared.isModeActive = false
+    KeyboardShortcuts.onKeyDown(for: .queuePasteAll) { [weak self] in
+       self?.toggleQueue()
     }
 
     KeyboardShortcuts.onKeyDown(for: .queueToggleSplit) {
@@ -330,6 +312,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
+  @MainActor
   private func toggleQueue() {
     guard Accessibility.allowed else {
       let alert = NSAlert()
@@ -348,8 +331,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     if QueueClipboard.shared.isModeActive {
+      // Stop recording and paste everything in one shot
+      if !QueueClipboard.shared.items.isEmpty {
+        QueueClipboardManager.shared.stopMonitoring()
+
+        let separator = Defaults[.queueSeparator].value ?? ""
+        let itemsToPaste = Defaults[.queuePasteLifo]
+          ? QueueClipboard.shared.items.reversed()
+          : Array(QueueClipboard.shared.items)
+        let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator)
+
+        Clipboard.shared.copy(itemsText, fromMaccy: true)
+        Clipboard.shared.paste()
+
+        QueueClipboard.shared.clear()
+      } else {
+        QueueClipboardManager.shared.stopMonitoring()
+      }
       QueueClipboard.shared.isModeActive = false
-      QueueClipboardManager.shared.stopMonitoring()
     } else {
       QueueClipboard.shared.clear()
       QueueClipboard.shared.isModeActive = true
