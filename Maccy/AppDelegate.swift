@@ -323,17 +323,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     KeyboardShortcuts.onKeyDown(for: .queuePasteAll) {
        guard !QueueClipboard.shared.items.isEmpty else { return }
 
-       let separator = Defaults[.queueSeparator].value ?? ""
-       let itemsToPaste = Defaults[.queuePasteLifo] ? QueueClipboard.shared.items.reversed() : QueueClipboard.shared.items
-       let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator) + separator
+       // 1. Stop the event tap FIRST so our Cmd+V isn't intercepted
+       QueueClipboardManager.shared.stopMonitoring()
 
+       // 2. Join items with separator (respecting LIFO/FIFO order)
+       let separator = Defaults[.queueSeparator].value ?? ""
+       let itemsToPaste = Defaults[.queuePasteLifo]
+         ? QueueClipboard.shared.items.reversed()
+         : Array(QueueClipboard.shared.items)
+       let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator)
+
+       // 3. Single atomic paste
        Clipboard.shared.copy(itemsText, fromMaccy: true)
        Clipboard.shared.paste()
 
-       // Flush: clear queue and return to normal recording mode
+       // 4. Clean up: clear queue and deactivate
        QueueClipboard.shared.clear()
        QueueClipboard.shared.isModeActive = false
-       QueueClipboardManager.shared.stopMonitoring()
     }
 
     KeyboardShortcuts.onKeyDown(for: .queueToggleSplit) {
