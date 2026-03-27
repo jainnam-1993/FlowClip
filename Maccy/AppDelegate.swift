@@ -12,7 +12,6 @@ class QueueClipboard {
   struct QueueItem: Identifiable, Hashable {
     let id = UUID()
     let item: HistoryItem
-    var isPasted: Bool = false
   }
 
   private(set) var items: [QueueItem] = []
@@ -45,34 +44,6 @@ class QueueClipboard {
       queueItem.title = queueItem.generateTitle()
       add(queueItem)
     }
-  }
-
-  func nextToPaste() -> HistoryItem? {
-    let useLifo = Defaults[.queuePasteLifo]
-
-    // Choose index depending on FIFO / LIFO preference
-    if let index = (useLifo ? items.lastIndex(where: { !$0.isPasted }) : items.firstIndex(where: { !$0.isPasted })) {
-      items[index].isPasted = true
-
-      // If this was the last item and cycle is on, reset immediately for visual feedback
-      if Defaults[.queueCyclePaste] && items.allSatisfy({ $0.isPasted }) {
-        for i in 0..<items.count {
-          items[i].isPasted = false
-        }
-      }
-
-      return items[index].item
-    } else if Defaults[.queueCyclePaste] && !items.isEmpty {
-      // It handles pasting when they were already all dimmed.
-      // Reset and pick newest or oldest depending on LIFO setting.
-      for i in 0..<items.count {
-        items[i].isPasted = false
-      }
-      let chosenIndex = useLifo ? (items.count - 1) : 0
-      items[chosenIndex].isPasted = true
-      return items[chosenIndex].item
-    }
-    return nil
   }
 
   func remove(id: UUID) {
