@@ -18,6 +18,11 @@ class QueueClipboard {
   var isModeActive: Bool = false
 
   func add(_ item: HistoryItem) {
+    // Deduplicate: dictation apps often write to clipboard twice per transcription
+    if let lastText = items.last?.item.previewableText,
+       lastText == item.previewableText {
+      return
+    }
     items.append(QueueItem(item: item))
   }
 
@@ -213,7 +218,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     Clipboard.shared.onNewCopy { item in
       if QueueClipboard.shared.isModeActive {
-        // Ignore items already in Maccy or those we just put for pasting
         if !item.fromMaccy {
           QueueClipboard.shared.addFromClipboard(item)
         }
@@ -342,7 +346,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator)
 
         Clipboard.shared.copy(itemsText, fromMaccy: true)
-        Clipboard.shared.paste()
+
+        // Delay paste so user can release ⌥⇧ keys — otherwise the simulated
+        // Cmd+V arrives as Cmd+Option+Shift+V because the hotkey modifiers
+        // are still physically held down.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+          Clipboard.shared.paste()
+        }
 
         QueueClipboard.shared.clear()
       } else {
