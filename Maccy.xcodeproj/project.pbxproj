@@ -206,7 +206,7 @@
 		DA0D57832E424784005101AF /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/PinsSettings.strings; sourceTree = "<group>"; };
 		DA0D57842E424784005101AF /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/PreviewItemView.strings; sourceTree = "<group>"; };
 		DA0D57852E424784005101AF /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/Localizable.strings; sourceTree = "<group>"; };
-		DA0EE7B6204657830025FC60 /* MaccyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MaccyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA0EE7B6204657830025FC60 /* MaccyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = MaccyUITests.xctest; path = FlowClip.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA0EE7B8204657830025FC60 /* MaccyUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaccyUITests.swift; sourceTree = "<group>"; };
 		DA0EF1871E444B2A00E58577 /* Clipboard.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Clipboard.swift; sourceTree = "<group>"; };
 		DA0FFA292C8D0FEC00A66C97 /* ModifierFlags+Description.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ModifierFlags+Description.swift"; sourceTree = "<group>"; };
@@ -243,7 +243,7 @@
 		DA2595DE2CBC44BE00A0A7F2 /* lt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = lt; path = lt.lproj/PreviewItemView.strings; sourceTree = "<group>"; };
 		DA2595DF2CBC44BE00A0A7F2 /* lt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = lt; path = lt.lproj/Localizable.strings; sourceTree = "<group>"; };
 		DA2F1B0926F22DF4005D30BA /* hr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hr; path = hr.lproj/Localizable.strings; sourceTree = "<group>"; };
-		DA360DB01E3DF137005C6F6B /* MaccyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MaccyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA360DB01E3DF137005C6F6B /* MaccyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = MaccyTests.xctest; path = FlowClip.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA360DB21E3DF137005C6F6B /* HistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; lineEnding = 0; path = HistoryTests.swift; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.swift; };
 		DA360DB41E3DF137005C6F6B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA384E85232746D800603999 /* SearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTests.swift; sourceTree = "<group>"; };
@@ -501,7 +501,7 @@
 		DAE284FF232257D20080E394 /* ColorImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorImage.swift; sourceTree = "<group>"; };
 		DAE2850123225BD90080E394 /* ColorImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorImageTests.swift; sourceTree = "<group>"; };
 		DAE8F5D32C43262B00851CA9 /* Popup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Popup.swift; sourceTree = "<group>"; };
-		DAEE38431E3DBEB100DD2966 /* Maccy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Maccy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DAEE38431E3DBEB100DD2966 /* FlowClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FlowClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DAEE38461E3DBEB100DD2966 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; lineEnding = 0; path = AppDelegate.swift; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.swift; };
 		DAEE384D1E3DBEB100DD2966 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DAF4741E27BB568000B53057 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -741,7 +741,7 @@
 		DAEE38441E3DBEB100DD2966 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				DAEE38431E3DBEB100DD2966 /* Maccy.app */,
+				DAEE38431E3DBEB100DD2966 /* FlowClip.app */,
 				DA360DB01E3DF137005C6F6B /* MaccyTests.xctest */,
 				DA0EE7B6204657830025FC60 /* MaccyUITests.xctest */,
 			);
@@ -856,7 +856,7 @@
 				2F12271D2E5C932200A1592A /* Logging */,
 			);
 			productName = Maccy;
-			productReference = DAEE38431E3DBEB100DD2966 /* Maccy.app */;
+			productReference = DAEE38431E3DBEB100DD2966 /* FlowClip.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -926,6 +926,7 @@
 				ro,
 				vi,
 				ckb,
+				Base,
 			);
 			mainGroup = DAEE383A1E3DBEB100DD2966;
 			packageReferences = (
@@ -1663,7 +1664,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 6;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 79Q5RV23F9;
+				DEVELOPMENT_TEAM = 29DPLC9929;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1698,7 +1699,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 6;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 79Q5RV23F9;
+				DEVELOPMENT_TEAM = 29DPLC9929;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

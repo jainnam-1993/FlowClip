@@ -12,13 +12,17 @@ class QueueClipboard {
   struct QueueItem: Identifiable, Hashable {
     let id = UUID()
     let item: HistoryItem
-    var isPasted: Bool = false
   }
 
   private(set) var items: [QueueItem] = []
   var isModeActive: Bool = false
 
   func add(_ item: HistoryItem) {
+    // Deduplicate: dictation apps often write to clipboard twice per transcription
+    if let lastText = items.last?.item.previewableText,
+       lastText == item.previewableText {
+      return
+    }
     items.append(QueueItem(item: item))
   }
 
@@ -45,34 +49,6 @@ class QueueClipboard {
       queueItem.title = queueItem.generateTitle()
       add(queueItem)
     }
-  }
-
-  func nextToPaste() -> HistoryItem? {
-    let useLifo = Defaults[.queuePasteLifo]
-
-    // Choose index depending on FIFO / LIFO preference
-    if let index = (useLifo ? items.lastIndex(where: { !$0.isPasted }) : items.firstIndex(where: { !$0.isPasted })) {
-      items[index].isPasted = true
-
-      // If this was the last item and cycle is on, reset immediately for visual feedback
-      if Defaults[.queueCyclePaste] && items.allSatisfy({ $0.isPasted }) {
-        for i in 0..<items.count {
-          items[i].isPasted = false
-        }
-      }
-
-      return items[index].item
-    } else if Defaults[.queueCyclePaste] && !items.isEmpty {
-      // It handles pasting when they were already all dimmed.
-      // Reset and pick newest or oldest depending on LIFO setting.
-      for i in 0..<items.count {
-        items[i].isPasted = false
-      }
-      let chosenIndex = useLifo ? (items.count - 1) : 0
-      items[chosenIndex].isPasted = true
-      return items[chosenIndex].item
-    }
-    return nil
   }
 
   func remove(id: UUID) {
@@ -163,7 +139,6 @@ class QueueClipboardManager {
   static let shared = QueueClipboardManager()
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
-  fileprivate var isInternalPaste = false
 
   func startMonitoring() {
     stopMonitoring()
@@ -178,65 +153,14 @@ class QueueClipboardManager {
           let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
           let flags = event.flags
           let isV = keyCode == Sauce.shared.keyCode(for: .v)
-          let isC = keyCode == Sauce.shared.keyCode(for: .c)
           let isCommand = flags.contains(.maskCommand)
 
-          if isC && isCommand {
-            // If Maccy is active, pass focus to the background app and re-trigger copy
-            if NSApp.isActive {
-              NSApp.deactivate()
-              DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                let source = CGEventSource(stateID: .hidSystemState)
-                let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(keyCode), keyDown: true)
-                keyDown?.flags = .maskCommand
-                let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(keyCode), keyDown: false)
-                keyUp?.flags = .maskCommand
-                keyDown?.post(tap: .cghidEventTap)
-                keyUp?.post(tap: .cghidEventTap)
-              }
-              return nil
-            }
-          }
-
+          // Suppress Cmd+V during recording — content is already queued via onNewCopy
           if isV && isCommand {
-            if QueueClipboardManager.shared.isInternalPaste {
-              QueueClipboardManager.shared.isInternalPaste = false
-              return Unmanaged.passRetained(event)
-            }
-            
-            // If Maccy is active, deactivate first so we paste into the target app
-            if NSApp.isActive {
-               NSApp.deactivate()
-            }
-
-            if let item = QueueClipboard.shared.nextToPaste() {
-              QueueClipboardManager.shared.isInternalPaste = true
-              DispatchQueue.main.asyncAfter(deadline: .now() + (NSApp.isActive ? 0.2 : 0.0)) { 
-                // Add extra delay if we just deactivated
-                Clipboard.shared.copy(item, removeFormatting: Defaults[.removeFormattingByDefault])
-                Clipboard.shared.paste()
-
-                // Paste separator if configured
-                let separator = Defaults[.queueSeparator]
-                if let separatorValue = separator.value {
-                  // Small delay to ensure the main item is pasted first
-                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    QueueClipboardManager.shared.isInternalPaste = true
-                    Clipboard.shared.copy(separatorValue, fromMaccy: true)
-                    Clipboard.shared.paste()
-                  }
-                }
-              }
-              return nil
-            } else {
-              // Queue is active but exhausted (and cycle is off)
-              // Block the original Command + V and beep
-              NSSound.beep()
-              return nil
-            }
+            return nil
           }
         }
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
       },
       userInfo: nil
     )
@@ -248,7 +172,6 @@ class QueueClipboardManager {
   }
 
   func stopMonitoring() {
-    isInternalPaste = false
     if let eventTap = eventTap { CGEvent.tapEnable(tap: eventTap, enable: false) }
     if let runLoopSource = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes) }
     eventTap = nil
@@ -295,7 +218,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     Clipboard.shared.onNewCopy { item in
       if QueueClipboard.shared.isModeActive {
-        // Ignore items already in Maccy or those we just put for pasting
         if !item.fromMaccy {
           QueueClipboard.shared.addFromClipboard(item)
         }
@@ -373,21 +295,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       NSSound.playMorseFeedback()
     }
     
-    KeyboardShortcuts.onKeyDown(for: .queuePasteAll) {
-       guard !QueueClipboard.shared.items.isEmpty else { return }
-
-       let separator = Defaults[.queueSeparator].value ?? ""
-       let itemsToPaste = Defaults[.queuePasteLifo] ? QueueClipboard.shared.items.reversed() : QueueClipboard.shared.items
-       let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator) + separator
-
-       QueueClipboardManager.shared.isInternalPaste = true
-       Clipboard.shared.copy(itemsText, fromMaccy: true)
-       Clipboard.shared.paste()
-
-       // Flush: clear queue and return to normal recording mode
-       QueueClipboard.shared.clear()
-       QueueClipboard.shared.isModeActive = false
-       QueueClipboardManager.shared.stopMonitoring()
+    KeyboardShortcuts.onKeyDown(for: .queuePasteAll) { [weak self] in
+       self?.toggleQueue()
     }
 
     KeyboardShortcuts.onKeyDown(for: .queueToggleSplit) {
@@ -407,6 +316,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
+  @MainActor
   private func toggleQueue() {
     guard Accessibility.allowed else {
       let alert = NSAlert()
@@ -425,8 +335,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     if QueueClipboard.shared.isModeActive {
+      // Stop recording and paste everything in one shot
+      if !QueueClipboard.shared.items.isEmpty {
+        QueueClipboardManager.shared.stopMonitoring()
+
+        let separator = Defaults[.queueSeparator].value ?? ""
+        let itemsToPaste = Defaults[.queuePasteLifo]
+          ? QueueClipboard.shared.items.reversed()
+          : Array(QueueClipboard.shared.items)
+        let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator)
+
+        Clipboard.shared.copy(itemsText, fromMaccy: true)
+
+        // Delay paste so user can release ⌥⇧ keys — otherwise the simulated
+        // Cmd+V arrives as Cmd+Option+Shift+V because the hotkey modifiers
+        // are still physically held down.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+          Clipboard.shared.paste()
+        }
+
+        QueueClipboard.shared.clear()
+      } else {
+        QueueClipboardManager.shared.stopMonitoring()
+      }
       QueueClipboard.shared.isModeActive = false
-      QueueClipboardManager.shared.stopMonitoring()
     } else {
       QueueClipboard.shared.clear()
       QueueClipboard.shared.isModeActive = true
