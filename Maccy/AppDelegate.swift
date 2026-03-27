@@ -163,7 +163,6 @@ class QueueClipboardManager {
   static let shared = QueueClipboardManager()
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
-  fileprivate var isInternalPaste = false
 
   func startMonitoring() {
     stopMonitoring()
@@ -178,65 +177,14 @@ class QueueClipboardManager {
           let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
           let flags = event.flags
           let isV = keyCode == Sauce.shared.keyCode(for: .v)
-          let isC = keyCode == Sauce.shared.keyCode(for: .c)
           let isCommand = flags.contains(.maskCommand)
 
-          if isC && isCommand {
-            // If Maccy is active, pass focus to the background app and re-trigger copy
-            if NSApp.isActive {
-              NSApp.deactivate()
-              DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                let source = CGEventSource(stateID: .hidSystemState)
-                let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(keyCode), keyDown: true)
-                keyDown?.flags = .maskCommand
-                let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(keyCode), keyDown: false)
-                keyUp?.flags = .maskCommand
-                keyDown?.post(tap: .cghidEventTap)
-                keyUp?.post(tap: .cghidEventTap)
-              }
-              return nil
-            }
-          }
-
+          // Suppress Cmd+V during recording — content is already queued via onNewCopy
           if isV && isCommand {
-            if QueueClipboardManager.shared.isInternalPaste {
-              QueueClipboardManager.shared.isInternalPaste = false
-              return Unmanaged.passRetained(event)
-            }
-            
-            // If Maccy is active, deactivate first so we paste into the target app
-            if NSApp.isActive {
-               NSApp.deactivate()
-            }
-
-            if let item = QueueClipboard.shared.nextToPaste() {
-              QueueClipboardManager.shared.isInternalPaste = true
-              DispatchQueue.main.asyncAfter(deadline: .now() + (NSApp.isActive ? 0.2 : 0.0)) { 
-                // Add extra delay if we just deactivated
-                Clipboard.shared.copy(item, removeFormatting: Defaults[.removeFormattingByDefault])
-                Clipboard.shared.paste()
-
-                // Paste separator if configured
-                let separator = Defaults[.queueSeparator]
-                if let separatorValue = separator.value {
-                  // Small delay to ensure the main item is pasted first
-                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    QueueClipboardManager.shared.isInternalPaste = true
-                    Clipboard.shared.copy(separatorValue, fromMaccy: true)
-                    Clipboard.shared.paste()
-                  }
-                }
-              }
-              return nil
-            } else {
-              // Queue is active but exhausted (and cycle is off)
-              // Block the original Command + V and beep
-              NSSound.beep()
-              return nil
-            }
+            return nil
           }
         }
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
       },
       userInfo: nil
     )
@@ -248,7 +196,6 @@ class QueueClipboardManager {
   }
 
   func stopMonitoring() {
-    isInternalPaste = false
     if let eventTap = eventTap { CGEvent.tapEnable(tap: eventTap, enable: false) }
     if let runLoopSource = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes) }
     eventTap = nil
@@ -380,7 +327,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
        let itemsToPaste = Defaults[.queuePasteLifo] ? QueueClipboard.shared.items.reversed() : QueueClipboard.shared.items
        let itemsText = itemsToPaste.compactMap { $0.item.previewableText }.joined(separator: separator) + separator
 
-       QueueClipboardManager.shared.isInternalPaste = true
        Clipboard.shared.copy(itemsText, fromMaccy: true)
        Clipboard.shared.paste()
 
